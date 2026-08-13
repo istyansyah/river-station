@@ -1,0 +1,118 @@
+# ══════════════════════════════════════════════════════════════
+# docker-compose.yml — River Station IoT System
+# Services: influxdb | mosquitto | backend | frontend
+#
+# Usage:
+#   Development:   docker compose up
+#   Production:    docker compose -f docker-compose.yml up -d
+#
+# First-time setup:
+#   1. Copy backend/.env.example to backend/.env and fill in secrets
+#   2. Initialise InfluxDB: docker compose up influxdb -d
+#      Then visit http://localhost:8086 to create org/bucket/token
+#   3. Paste the token into backend/.env → INFLUXDB_TOKEN
+#   4. docker compose up -d
+# ══════════════════════════════════════════════════════════════
+
+networks:
+  river-net:
+    driver: bridge
+
+volumes:
+  influxdb-data:
+  influxdb-config:
+  mosquitto-data:
+  mosquitto-log:
+
+services:
+
+  # ── InfluxDB v2 Time-Series Database ─────────────────────
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: river-influxdb
+    restart: unless-stopped
+    networks:
+      - river-net
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_INIT_PASSWORD:?Set INFLUXDB_INIT_PASSWORD in the root .env file}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-river-station}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-river_monitoring}
+      - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUXDB_RETENTION:-30d}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in the root .env file}
+    healthcheck:
+      test: [ "CMD", "influx", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Mosquitto MQTT Broker ─────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: river-mosquitto
+    restart: unless-stopped
+    networks:
+      - river-net
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    healthcheck:
+      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ───────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: river-backend
+    restart: unless-stopped
+    networks:
+      - river-net
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override MQTT/InfluxDB URLs to use container names (DNS inside Docker network)
+      - MQTT_BROKER=mosquitto
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in the root .env file}
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── React Frontend (Nginx) ────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: river-frontend
+    restart: unless-stopped
+    networks:
+      - river-net
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
