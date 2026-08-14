@@ -52,6 +52,15 @@ def _normalize_payload(raw_dict: dict) -> dict:
     return raw_dict
 
 
+def _normalize_heartbeat_payload(raw_dict: dict) -> dict:
+    """Normalize heartbeat field names from firmware before validation."""
+    if "status" not in raw_dict and "type" in raw_dict:
+        raw_dict["status"] = raw_dict["type"]
+    if "uptime_s" not in raw_dict and "uptime" in raw_dict:
+        raw_dict["uptime_s"] = raw_dict["uptime"]
+    return raw_dict
+
+
 class MQTTMessageHandler:
     """Routes and handles incoming MQTT messages."""
 
@@ -89,8 +98,9 @@ class MQTTMessageHandler:
             payload_str = payload_bytes.decode("utf-8")
             logger.debug("Received MQTT heartbeat payload: %s on topic %s", payload_str, topic)
 
-            # 1. Parse and Validate
+            # 1. Parse and Normalize
             raw_dict = json.loads(payload_str)
+            raw_dict = _normalize_heartbeat_payload(raw_dict)
             heartbeat = HeartbeatData(**raw_dict)
             self._sensor_service.record_heartbeat()
 

@@ -90,8 +90,7 @@ class TelegramService:
             logger.error("Telegram send failed: %s", exc)
             raise TelegramError("Failed to send Telegram message", str(exc)) from exc
 
-    @staticmethod
-    def _format_message(data: ProcessedSensorData) -> str:
+    def _format_message(self, data: ProcessedSensorData) -> str:
         """Build an actionable alert message from sensor data."""
         is_awas = data.warning_status == WarningStatus.AWAS
         status_icon = "🔴" if is_awas else "🟠"
