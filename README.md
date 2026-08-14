@@ -71,7 +71,7 @@ Sistem monitoring real-time dan peringatan dini (early warning) berbasis IoT unt
 | JSN-SR04T | Tinggi muka air (ultrasonic) | TRIG: 5, ECHO: 18 |
 | AHT10 | Suhu & kelembapan udara | SDA: 21, SCL: 22 |
 | Rain Sensor | Intensitas hujan (ADC) | GPIO 35 |
-| Anemometer | Kecepatan angin (pulse count) | GPIO 19 |
+| Anemometer | Kecepatan angin (pulse count) | GPIO 34 |
 | BOOT Button | Factory reset WiFi | GPIO 0 |
 
 ### Payload MQTT (`river/weather`)
