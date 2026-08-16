@@ -89,7 +89,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       <div className="p-4 border-t border-slate-800 bg-slate-950/40">
         <div className="flex items-center gap-2 px-2 text-[11px] text-slate-400">
           <ShieldCheckIcon className="w-4 h-4 text-emerald-500" />
-          <span>V2.0.0 Firmware Ready</span>
+          <span>River Station</span>
         </div>
       </div>
     </aside>

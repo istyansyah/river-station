@@ -41,11 +41,11 @@ services:
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_INIT_PASSWORD:?Set INFLUXDB_INIT_PASSWORD in the root .env file}
-      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-river-station}
-      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-river_monitoring}
-      - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUXDB_RETENTION:-30d}
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in the root .env file}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword123
+      - DOCKER_INFLUXDB_INIT_ORG=river-station
+      - DOCKER_INFLUXDB_INIT_BUCKET=river_monitoring
+      - DOCKER_INFLUXDB_INIT_RETENTION=30d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=river-station-super-secret-token-change-in-production
     healthcheck:
       test: [ "CMD", "influx", "ping" ]
       interval: 10s
@@ -89,7 +89,7 @@ services:
       # Override MQTT/InfluxDB URLs to use container names (DNS inside Docker network)
       - MQTT_BROKER=mosquitto
       - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in the root .env file}
+      - INFLUXDB_TOKEN=river-station-super-secret-token-change-in-production
     depends_on:
       influxdb:
         condition: service_healthy
