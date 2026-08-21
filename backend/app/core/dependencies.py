@@ -9,7 +9,7 @@ via FastAPI's Depends() system — enabling clean unit testing with mocks.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Generator
+from typing import Callable, Generator, Optional
 
 from fastapi import Depends
 from influxdb_client import InfluxDBClient
@@ -86,6 +86,7 @@ def get_sensor_service(
     telegram_service: TelegramService = Depends(get_telegram_service),
     manager: ConnectionManager = Depends(get_connection_manager),
     settings: Settings = Depends(get_settings_dep),
+    publish_command: Optional[Callable[[dict], bool]] = None,
 ) -> SensorService:
     """FastAPI dependency: inject fully wired SensorService."""
     return SensorService(
@@ -95,4 +96,5 @@ def get_sensor_service(
         telegram_service=telegram_service,
         connection_manager=manager,
         settings=settings,
+        publish_command=publish_command,
     )

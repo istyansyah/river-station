@@ -20,9 +20,10 @@
 #define I2C_SDA 21
 #define I2C_SCL 22
 #define STATUS_LED_PIN 2
+#define BUZZER_PIN 25
 
 // ============ KONFIGURASI ============
-const char *mqtt_server = "10.135.230.175";
+const char *mqtt_server = "52.73.86.120";
 const int mqtt_port = 1883;
 const char *weather_topic = "river/weather";
 const char *heartbeat_topic = "river/heartbeat";
@@ -39,6 +40,7 @@ const char *deviceLocation = "Sungai Batang Air Dingin, Kota Padang";
 // ============ VARIABEL GLOBAL ============
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
+WiFiManager wifiManager;
 AHT10 aht10(AHT10_ADDRESS_0X38);
 
 volatile unsigned long pulseCount = 0;
@@ -49,14 +51,12 @@ int countThing = 0;
 float lastWindSpeed = 0;
 float lastWaterLevel = 0;
 String deviceId = "esp32-riverstation-01";
-unsigned long publishIntervalDynamic = 2;
+unsigned long publishIntervalDynamic = 1;
 bool ntpSynced = false;
 
 // WiFiManager state
-bool wifiResetPending = false;
-unsigned long wifiResetButtonStart = 0;
-bool wifiReconnectNeeded = false;
-unsigned long lastWifiReconnectMs = 0;
+
+
 
 // MQTT non-blocking state
 unsigned long lastMqttReconnectMs = 0;
@@ -66,6 +66,11 @@ bool mqttReconnectActive = false;
 // LED state
 unsigned long lastLedToggleMs = 0;
 bool ledState = false;
+
+unsigned long lastBuzzerToggleMs = 0;
+unsigned long buzzerIntervalMs = 0;
+bool buzzerEnabled = false;
+bool buzzerState = false;
 
 // ============ FUNGSI HELPER ============
 String formatFloat(float value, int precision = 2) {
@@ -124,12 +129,22 @@ float measureWaterLevelSingle() {
 
 float measureWaterLevel() {
   float samples[JSN_MEDIAN_SAMPLES];
+  int validSamples = 0;
+
   for (int i = 0; i < JSN_MEDIAN_SAMPLES; i++) {
-    samples[i] = measureWaterLevelSingle();
-    delay(20);
+    float sample = measureWaterLevelSingle();
+    if (sample > 0.0f && sample <= 500.0f) {
+      samples[validSamples++] = sample;
+    }
+    delay(60);
   }
-  for (int i = 0; i < JSN_MEDIAN_SAMPLES - 1; i++) {
-    for (int j = i + 1; j < JSN_MEDIAN_SAMPLES; j++) {
+
+  if (validSamples == 0) {
+    return -1;
+  }
+
+  for (int i = 0; i < validSamples - 1; i++) {
+    for (int j = i + 1; j < validSamples; j++) {
       if (samples[i] > samples[j]) {
         float tmp = samples[i];
         samples[i] = samples[j];
@@ -137,38 +152,30 @@ float measureWaterLevel() {
       }
     }
   }
-  return samples[JSN_MEDIAN_SAMPLES / 2];
+
+  return samples[validSamples / 2];
 }
 
 // ============ WIFI (WiFiManager TETAP, + NON-BLOCKING RESET + AUTO-RECONNECT)
 // ============
-void resetWifiIfRequested() {
-  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
-  if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
-    if (wifiResetButtonStart == 0) {
-      wifiResetButtonStart = millis();
-      Serial.println("Button pressed... hold 5 seconds to reset WiFi");
-    }
-    if (millis() - wifiResetButtonStart >= 5000) {
-      Serial.println("Resetting WiFi settings...");
-      WiFiManager wm;
-      wm.resetSettings();
-      Serial.println("WiFi reset, restarting ESP...");
-      delay(100);
-      ESP.restart();
-    }
-  } else {
-    wifiResetButtonStart = 0;
-  }
-}
-
 void connectWifi() {
-  Serial.println("Connecting to WiFi...");
-  WiFiManager wm;
-  wm.autoConnect("ESP32_River_AP");
+  Serial.println("Connecting to saved WiFi...");
+  wifiManager.setConnectTimeout(15);
+  wifiManager.setConfigPortalTimeout(0);
+  wifiManager.setConfigPortalBlocking(true);
+  wifiManager.setBreakAfterConfig(false);
+  wifiManager.setCaptivePortalEnable(true);
+  wifiManager.setCleanConnect(true);
+
+  bool connected = wifiManager.autoConnect("ESP32_River_AP", "river1234");
+
+  if (!connected || WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected. Configuration portal is still active.");
+    return;
+  }
+
   Serial.print("WiFi connected! IP address: ");
   Serial.println(WiFi.localIP());
-
   configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
   Serial.println("NTP sync requested (UTC+7 / WIB)");
 }
@@ -193,6 +200,20 @@ time_t getEpoch() {
   if (now > 1700000000)
     return now;
   return 0;
+}
+
+void printTimestamp() {
+  time_t now = getEpoch();
+  if (now > 0) {
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    char timestamp[32];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S WIB", &timeinfo);
+    Serial.print("Timestamp   : ");
+    Serial.println(timestamp);
+  } else {
+    Serial.println("Timestamp   : Belum tersinkron");
+  }
 }
 
 // ============ MQTT (RECONNECT NON-BLOCKING, + COMMAND SUBSCRIBE) ============
@@ -225,6 +246,26 @@ void handleCommand(char *topic, byte *payload, unsigned int length) {
         }
       }
     }
+  }
+
+  if (strstr(buf, "\"buzzer\"") != nullptr) {
+    if (strstr(buf, "Siaga") != nullptr) {
+      buzzerEnabled = true;
+      buzzerIntervalMs = 500;
+    } else if (strstr(buf, "Awas") != nullptr) {
+      buzzerEnabled = true;
+      buzzerIntervalMs = 200;
+    } else if (strstr(buf, "Normal") != nullptr ||
+               strstr(buf, "Waspada") != nullptr) {
+      buzzerEnabled = false;
+      buzzerIntervalMs = 0;
+    } else {
+      buzzerEnabled = false;
+      buzzerIntervalMs = 0;
+    }
+    buzzerState = false;
+    digitalWrite(BUZZER_PIN, LOW);
+    lastBuzzerToggleMs = millis();
   }
 }
 
@@ -283,7 +324,9 @@ void sendHeartbeat() {
 
 // ============ PUBLISH DATA (JSON KEYS ENGLISH) ============
 void publishWeather() {
-  Serial.println("\n=== Publishing Weather Data ===");
+  Serial.println("\n========================================");
+  printTimestamp();
+  Serial.println("========================================");
 
   float temperature = aht10.readTemperature();
   float humidity = aht10.readHumidity();
@@ -309,9 +352,30 @@ void publishWeather() {
   } else {
     lastWaterLevel = rawDistance;
   }
-  Serial.print("Water level: ");
+  Serial.println("===== SENSOR JSN-SR04T ======");
+  Serial.print("Jarak   : ");
   Serial.print(rawDistance, 1);
   Serial.println(" cm");
+  Serial.println();
+
+  Serial.println("========== SENSOR AHT10 ==========");
+  Serial.print("Suhu        : ");
+  Serial.print(tempRounded, 2);
+  Serial.println(" °C");
+  Serial.print("Kelembapan  : ");
+  Serial.print(humRounded, 2);
+  Serial.println(" %");
+  Serial.print("Heat Index  : ");
+  Serial.print(hiRounded, 2);
+  Serial.println(" °C");
+  Serial.println();
+
+  Serial.println("========== SENSOR RAINDROP ==========");
+  Serial.print("Nilai analog: ");
+  Serial.println(rainAnalog);
+  Serial.println();
+
+  
 
   StaticJsonDocument<512> doc;
   doc["device_id"] = deviceId;
@@ -320,7 +384,6 @@ void publishWeather() {
   doc["heat_index"] = hiRounded;
   doc["wind_speed"] = round(windRounded * 3.6 * 100) / 100.0;
   doc["raw_distance"] = round(rawDistance * 100) / 100.0;
-  doc["rain_analog"] = rainAnalog;
   doc["rssi"] = WiFi.RSSI();
   doc["location"] = deviceLocation;
   doc["rain_raw"] = rainAnalog;
@@ -353,6 +416,23 @@ void publishWeather() {
 }
 
 // ============ LED STATUS ============
+void updateBuzzer() {
+  if (!buzzerEnabled || buzzerIntervalMs == 0 || WiFi.status() != WL_CONNECTED ||
+      !mqtt.connected()) {
+    if (buzzerState) {
+      buzzerState = false;
+      digitalWrite(BUZZER_PIN, LOW);
+    }
+    return;
+  }
+
+  if (millis() - lastBuzzerToggleMs >= buzzerIntervalMs) {
+    lastBuzzerToggleMs = millis();
+    buzzerState = !buzzerState;
+    digitalWrite(BUZZER_PIN, buzzerState ? HIGH : LOW);
+  }
+}
+
 void updateStatusLED() {
   if (WiFi.status() != WL_CONNECTED) {
     if (millis() - lastLedToggleMs >= 200) {
@@ -384,7 +464,7 @@ void setup() {
   esp_task_wdt_init(WDT_TIMEOUT_S, true);
   esp_task_wdt_add(nullptr);
 
-  resetWifiIfRequested();
+  connectWifi();
 
   Serial.println("Initializing I2C...");
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -400,6 +480,8 @@ void setup() {
   Serial.println("Setting up pins...");
   pinMode(STATUS_LED_PIN, OUTPUT);
   digitalWrite(STATUS_LED_PIN, LOW);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
   pinMode(RAIN_ANALOG_PIN, INPUT);
   pinMode(ANEMOMETER_PIN, INPUT);
   pinMode(ULTRASONIC_TRIG, OUTPUT);
@@ -409,8 +491,6 @@ void setup() {
   Serial.println("Setting up anemometer interrupt...");
   attachInterrupt(digitalPinToInterrupt(ANEMOMETER_PIN), countPulse, RISING);
   Serial.println("Interrupt configured");
-
-  connectWifi();
 
   Serial.println("Setting up MQTT...");
   mqtt.setServer(mqtt_server, mqtt_port);
@@ -436,26 +516,9 @@ void loop() {
 
   mqtt.loop();
 
-  // Auto-reconnect WiFi
   if (WiFi.status() != WL_CONNECTED) {
-    wifiReconnectNeeded = true;
     ntpSynced = false;
   }
-
-  if (wifiReconnectNeeded) {
-    unsigned long now = millis();
-    if (now - lastWifiReconnectMs >= 10000) {
-      lastWifiReconnectMs = now;
-      Serial.println("WiFi disconnected, reconnecting...");
-      connectWifi();
-      if (WiFi.status() == WL_CONNECTED) {
-        wifiReconnectNeeded = false;
-      }
-    }
-  }
-
-  // Non-blocking WiFi reset check
-  resetWifiIfRequested();
 
   // NTP sync check
   if (WiFi.status() == WL_CONNECTED && !ntpSynced) {
@@ -467,46 +530,51 @@ void loop() {
     connectMqttStart();
   }
 
-  // LED status
+  // LED and buzzer status
   updateStatusLED();
+  updateBuzzer();
 
-  // Measurement & publish (only if WiFi AND MQTT connected)
-  if (WiFi.status() == WL_CONNECTED && mqtt.connected()) {
-    if (millis() - lastMeasureMs >= timemeasure * 1000) {
-      Serial.println("\n--- Measurement Interval ---");
+  if (millis() - lastMeasureMs >= timemeasure * 1000) {
+    Serial.println("\n======= SENSOR ANEMOMETER =======");
 
-      noInterrupts();
-      unsigned long pulses = pulseCount;
-      pulseCount = 0;
-      interrupts();
+    noInterrupts();
+    unsigned long pulses = pulseCount;
+    pulseCount = 0;
+    interrupts();
 
-      Serial.print("Pulses: ");
-      Serial.println(pulses);
+    Serial.print("Jumlah pulsa: ");
+    Serial.println(pulses);
 
-      lastWindSpeed = calculateWindSpeed(pulses);
-      Serial.print("Wind speed: ");
-      Serial.print(lastWindSpeed, 2);
-      Serial.println(" m/s (" + String(lastWindSpeed * 3.6, 2) + " km/jam)");
+    lastWindSpeed = calculateWindSpeed(pulses);
+    Serial.print("Kecepatan   : ");
+    Serial.print(lastWindSpeed, 2);
+    Serial.println(" m/s");
+    Serial.print("            : ");
+    Serial.print(lastWindSpeed * 3.6, 2);
+    Serial.println(" km/jam");
 
-      lastMeasureMs = millis();
-      countThing++;
+    lastMeasureMs = millis();
+    countThing++;
 
-      Serial.print("Measurement count: ");
-      Serial.println(countThing);
+    Serial.print("Measurement count: ");
+    Serial.println(countThing);
 
-      if (countThing >= (int)publishIntervalDynamic) {
+    if (countThing >= (int)publishIntervalDynamic) {
+      if (WiFi.status() == WL_CONNECTED && mqtt.connected()) {
         Serial.println("Publishing data...");
         publishWeather();
-        countThing = 0;
+      } else {
+        Serial.println("Data tidak dikirim: WiFi/MQTT belum terhubung");
       }
-      Serial.println("--- End Measurement ---\n");
+      countThing = 0;
     }
+    Serial.println("--- End Measurement ---\n");
+  }
 
-    // Heartbeat
-    if (millis() - lastHeartbeatMs >= 60000) {
-      sendHeartbeat();
-      lastHeartbeatMs = millis();
-    }
+  if (WiFi.status() == WL_CONNECTED && mqtt.connected() &&
+      millis() - lastHeartbeatMs >= 60000) {
+    sendHeartbeat();
+    lastHeartbeatMs = millis();
   }
 
   delay(10);

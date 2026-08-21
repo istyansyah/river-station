@@ -36,7 +36,24 @@ export const useWeatherSocket = () => {
         
         if (payload.type === 'welcome' || payload.type === 'weather_update') {
           if (payload.data) {
-            setLiveData(payload.data);
+            setLiveData((currentData) => {
+              if (!currentData?.timestamp || !payload.data.timestamp) {
+                return payload.data;
+              }
+
+              const currentTimestamp = Date.parse(currentData.timestamp);
+              const incomingTimestamp = Date.parse(payload.data.timestamp);
+
+              if (
+                Number.isFinite(currentTimestamp) &&
+                Number.isFinite(incomingTimestamp) &&
+                incomingTimestamp < currentTimestamp
+              ) {
+                return currentData;
+              }
+
+              return payload.data;
+            });
           }
         }
       } catch (err) {

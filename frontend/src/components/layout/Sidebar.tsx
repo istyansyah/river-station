@@ -3,7 +3,6 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   ChartBarIcon,
   ClockIcon,
-  CircleStackIcon,
   ShieldCheckIcon,
   InformationCircleIcon,
 } from '@heroicons/react/24/outline';
@@ -41,26 +40,26 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen }) => {
       }`}
     >
       {/* Brand Identity */}
-      <div className="flex items-center justify-between gap-3 px-6 h-16 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <CircleStackIcon className="w-8 h-8 text-brand-400 animate-pulse-slow" />
-          <div>
-            <h1 className="font-bold text-sm leading-tight text-white tracking-wide uppercase">
-              River Station
-            </h1>
-            <span className="text-[10px] text-slate-400 font-medium">
-              Early Warning System
-            </span>
-          </div>
-        </div>
+      <div className="relative flex flex-col items-center px-6 pt-5 pb-4 border-b border-slate-800">
         <button
           type="button"
           onClick={() => setIsOpen(false)}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="absolute top-3 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           aria-label="Close navigation menu"
         >
           <span className="text-xl leading-none" aria-hidden="true">×</span>
         </button>
+        <img
+          src="/RWS.png"
+          alt="River Station"
+          className="w-24 h-24 object-contain"
+        />
+        <h1 className="mt-2 font-bold text-sm leading-tight text-white tracking-wide uppercase">
+          River Station
+        </h1>
+        <span className="text-[10px] text-slate-400 font-medium">
+          Early Warning System
+        </span>
       </div>
 
       {/* Navigation */}

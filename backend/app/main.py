@@ -73,9 +73,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         telegram_service=telegram_service,
         manager=connection_manager,
         settings=settings,
+        publish_command=lambda payload: app.state.mqtt_client.publish_command(payload),
     )
 
-    # 3. Create MQTT Background Thread Client
     loop = asyncio.get_running_loop()
     msg_handler = MQTTMessageHandler(sensor_service=sensor_service)
     mqtt_client = MQTTClient(

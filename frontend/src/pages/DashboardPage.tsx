@@ -25,8 +25,7 @@ const DashboardPage: React.FC = () => {
   const { data: restLatest, isLoading: isLatestLoading, isError: isLatestError } = useLatestWeather();
   const { data: systemStatus } = useSystemStatus();
 
-  // Pick the most fresh data source: prioritize WebSocket, fallback to REST
-  const data = liveData || restLatest;
+  const data = isSocketConnected ? liveData || restLatest : restLatest || liveData;
   const isDeviceOnline = systemStatus?.device_online ?? isSocketConnected;
 
   if (isLatestLoading && !data) {

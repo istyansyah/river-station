@@ -13,7 +13,7 @@ Orchestrates:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from app.config.settings import Settings
 from app.logging.logger import get_logger
@@ -38,6 +38,7 @@ class SensorService:
         telegram_service: TelegramService,
         connection_manager: ConnectionManager,
         settings: Settings,
+        publish_command: Optional[Callable[[dict], bool]] = None,
     ) -> None:
         self._repository = repository
         self._warning_service = warning_service
@@ -45,6 +46,8 @@ class SensorService:
         self._telegram_service = telegram_service
         self._connection_manager = connection_manager
         self._settings = settings
+        self._publish_command = publish_command
+        self._last_warning_status = None
         self._last_data_received: Optional[datetime] = None
         self._last_device_id: Optional[str] = None
         self._last_heartbeat_received: Optional[datetime] = None
@@ -72,6 +75,20 @@ class SensorService:
         # 2. Classify warning and tourism status
         warning_status = self._warning_service.classify(raw_data)
         tourism_status = self._tourism_service.classify(raw_data, warning_status)
+
+        if warning_status != self._last_warning_status:
+            interval_ms = {
+                "Siaga": 500,
+                "Awas": 200,
+            }.get(warning_status.value, 0)
+            if self._publish_command is not None:
+                self._publish_command({
+                    "command": "buzzer",
+                    "buzzer": warning_status.value,
+                    "status": warning_status.value,
+                    "interval_ms": interval_ms,
+                })
+            self._last_warning_status = warning_status
 
         # 3. Resolve timestamp (device NTP if synced, else server time)
         resolved_time = raw_data.timestamp or datetime.now(timezone.utc)

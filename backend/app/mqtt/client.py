@@ -69,6 +69,24 @@ class MQTTClient:
         self._client.loop_stop()
         self._client.disconnect()
 
+    def publish_command(self, payload: dict) -> bool:
+        """Publish a JSON command to the configured device command topic."""
+        if not self._connected:
+            logger.warning("Cannot publish MQTT command: client is disconnected")
+            return False
+
+        import json
+
+        result = self._client.publish(
+            self._settings.mqtt_topic_command,
+            json.dumps(payload),
+            qos=1,
+        )
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            logger.error("Failed to publish MQTT command: rc=%s", result.rc)
+            return False
+        return True
+
     @property
     def is_connected(self) -> bool:
         """Return the current connection status."""

@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     mqtt_port: int = 1883
     mqtt_topic_weather: str = "river/weather"
     mqtt_topic_heartbeat: str = "river/heartbeat"
+    mqtt_topic_command: str = "riverstation/device/cmd"
     mqtt_client_id: str = "river-backend-01"
 
     # ── InfluxDB ──────────────────────────────────────────────

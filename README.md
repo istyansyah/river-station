@@ -147,6 +147,16 @@ Dcurrent = 145 cm
 
 Artinya, muka air naik **35 cm dibandingkan kondisi normal**. Sistem tidak menggunakan jarak mentah untuk menentukan status sungai.
 
+### Buzzer Peringatan ESP32
+
+TMB 12A05 2-pin dikendalikan dari GPIO 25 melalui transistor NPN atau MOSFET dan supply 5 V. Satukan GND supply buzzer dengan GND ESP32. Backend mengirim command MQTT ke `riverstation/device/cmd`:
+
+```json
+{"command":"buzzer","status":"Siaga","interval_ms":500}
+```
+
+Normal dan Waspada mematikan buzzer. Siaga menggunakan pola nyala/mati 500 ms, sedangkan Awas menggunakan pola nyala/mati 200 ms. Backend hanya mengirim command ketika status berubah; jika koneksi MQTT terputus, firmware mematikan buzzer.
+
 ### Konfigurasi
 
 Konfigurasi ada pada backend:
